@@ -2,7 +2,7 @@ from flask import Flask, render_template, request, jsonify
 import cv2
 import numpy as np
 import logging
-from prediction import predict
+from prediction import segmented_letters
 
 app = Flask(__name__, template_folder='templates')
 
@@ -18,11 +18,11 @@ def upload():
         img = cv2.imdecode(np.fromstring(img.read(), np.uint8), cv2.IMREAD_COLOR)
         
         # make prediction
-        pred_label, pred_conf = predict(img)
+        segmented_letters = segmented_letters(img)
 
         response = {
-            'label': str(pred_label),
-            'confidence': str(pred_conf)
+            str(segmented_letters),
+            
         }
         
         return jsonify(response)

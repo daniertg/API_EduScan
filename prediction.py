@@ -3,6 +3,8 @@ import cv2
 import numpy as np
 import joblib
 from imutils.contours import sort_contours
+import imutils
+from PIL import Image, ImageOps
 
 def preprocessing(img):
    blurred_image = blur(img)
@@ -14,16 +16,24 @@ def preprocessing(img):
    dilasi_image= dilasi(edges_image, kernel_rect, 3)
    rect = find_contour(dilasi_image)
    crop_image = transform_perspective(img, rect.reshape(4, 2))
+   brigthness_img = brightness(crop_image, 1, 50)
+   filter_img = red_filter(brigthness_img)
+   grayscale_img = grayscale(filter_img)
+   thresh_img = thresholding(grayscale_img, 180, cv2.THRESH_TRUNC)
+   invers_img = 255 - grayscale_img
+
+   kernel_custom = cv2.getStructuringElement(cv2.MORPH_RECT, (35, 1))
+   dilated_img = dilasi(invers_img, kernel_custom, 1)
+
+   kernel_bilateral = np.array([[0.0625, 0.125, 0.0625], [0.125, 0.25, 0.125], [0.0625, 0.125, 0.0625]])
+   image_enhanced = cv2.filter2D(dilated_img, -1, kernel_bilateral)
+
+   thresh2_img = thresholding(image_enhanced, 100,cv2.THRESH_OTSU)
+
+   valid_contours = detect_rows(thresh2_img, crop_image)
+   word_rois = extract_word_rois(grayscale_img, valid_contours)
    
-   img = crop_image
-   
-   return img
-   
-   
-   
-   
-   
-   
+   return word_rois
    
    
    
@@ -149,3 +159,103 @@ def detect_rows(image, draw_image, min_w=100, max_w=1500, min_h=8, max_h=500, sh
         valid_contours.append(contour)
 
   return valid_contours
+
+def brightness(image, alpha, beta):
+  brigthness_img = cv2.convertScaleAbs(image, alpha=alpha, beta=beta)
+  return brigthness_img
+
+def red_filter (image) :
+  image[:, :, 1] = 0
+  image[:, :, 2] = 0
+  return image
+
+def extract_word_rois(grayscale_image, valid_contours):
+
+  word_rois = []
+  for word in valid_contours:
+    x, y, w, h = cv2.boundingRect(word)
+    word_roi = grayscale_image[y:y + h, x:x + w]
+    word_rois.append(word_roi)
+
+  return word_rois
+
+def resize_img(img, w, h):
+  if w > h:
+    resized = imutils.resize(img, width=28)
+  else:
+    resized = imutils.resize(img, height=28)
+
+  # (w, h) = resized.shape
+  (h, w) = resized.shape
+
+  # Calculate how many pixels need to fill char image
+  dX = int(max(0, 28 - w) / 2.0)
+  dY = int(max(0, 28 - h) / 2.0)
+
+  filled = cv2.copyMakeBorder(resized, top=dY, bottom=dY, right=dX, left=dX, borderType=cv2.BORDER_CONSTANT, value=(0,0,0))
+  filled = cv2.resize(filled, (28,28))
+
+  return filled
+
+def segment_and_recognize_letters(word_rois):
+  img = preprocessing(word_rois)
+  total_letter = 0
+  roi_index = 0
+  segmented_letters = []
+
+  for roi in word_rois:
+    segmented_letters.append([])
+    # Thresholding
+    thresh = cv2.threshold(roi, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)[1]
+
+    # Opening Morphology
+    kernel = np.ones((3, 3), np.uint8)
+    opened_image = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel, 1)
+
+
+    # Localitation
+    contours_letter, _ = cv2.findContours(opened_image, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    contours_letter = sort_contours(contours_letter, method="left-to-right")[0]
+
+    lps = 0
+
+    for contour in contours_letter:
+        pred_index = 0
+        # Hitung bounding box kontur
+        x1, y1, w1, h1 = cv2.boundingRect(contour)
+
+        if cv2.contourArea(contour) > 6 and w1/h1 < 2:
+
+              letter = opened_image[y1:y1+h1, x1:x1+w1]
+              #cv2_imshow(opened_image[y1:y1+h1, x1:x1+w1])
+              (h, w) = letter.shape
+              letter = resize_img(letter, w, h)
+              #print(letter.shape)
+              # Convert the image to PIL format
+              pil_img = Image.fromarray(letter)
+              # Tentukan ukuran padding (misalnya, 5 piksel)
+              padding_size = 8
+
+              # Buat border padding menggunakan ImageOps.expand
+              padded_letter = ImageOps.expand(pil_img, border=padding_size, fill=(0,))
+              # Konversi citra PIL ke array NumPy
+              numpy_letter = np.array(padded_letter)
+              resize_letter = resize_img(numpy_letter,28,28)
+              normalized_letter = resize_letter.reshape(28, 28, 1)
+
+              model = load_model('models/model.h5')
+              char_list = joblib.load('models/EduScan.pkl')
+              
+              pred = model.predict(normalized_letter)
+              pred_index = np.argmax(pred)
+              pred_label = char_list[pred_index]
+              
+
+              segmented_letters[roi_index].append(str(pred_label))
+
+
+
+    total_letter += lps
+    roi_index += 1
+
+  return segmented_letters

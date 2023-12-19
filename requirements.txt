@@ -6,3 +6,4 @@ tensorflow
 imutils
 joblib
 python-dotenv
+Pillow

@@ -15,6 +15,10 @@ def preprocessing(img):
    rect = find_contour(dilasi_image)
    crop_image = transform_perspective(img, rect.reshape(4, 2))
    
+   img = crop_image
+   
+   return img
+   
    
    
    
@@ -24,8 +28,8 @@ def preprocessing(img):
    
    
 def predict(img):
-    model = load_model('models/network')
-    labels = joblib.load('models/char_labels.pkl')
+    model = load_model('models/model.h5')
+    labels = joblib.load('models/EduScan.pkl')
 
     img = preprocessing(img)
     
@@ -134,15 +138,10 @@ def detect_rows(image, draw_image, min_w=100, max_w=1500, min_h=8, max_h=500, sh
 
   detect_rows = draw_image.copy()
 
-  # Mencari kontur pada citra biner.
   contours, _ = cv2.findContours(image, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
   contours = sort_contours(contours, method="top-to-bottom")[0]
 
-  # Menampilkan jumlah kontur.
-  #print(f"Number of contours: {len(contours)}")
-
   valid_contours = []
-  # Menggambar kontur berupa persegi.
   for contour in contours:
       x, y, w, h = cv2.boundingRect(contour)
       if(w >= min_w and w <= max_w) and (h >= min_h and h <= max_h):

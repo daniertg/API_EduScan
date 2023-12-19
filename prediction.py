@@ -6,6 +6,9 @@ from imutils.contours import sort_contours
 import imutils
 from PIL import Image, ImageOps
 
+model = load_model('models/model.h5')
+char_list = joblib.load('models/EduScan.pkl')
+
 def preprocessing(img):
    blurred_image = blur(img)
    thresh_binary = thresholding(blurred_image, 180, cv2.THRESH_BINARY)
@@ -38,17 +41,23 @@ def preprocessing(img):
    
    
 def predict(img):
-    model = load_model('models/model.h5')
-    labels = joblib.load('models/EduScan.pkl')
-
+    global model, char_list
+    
     img = preprocessing(img)
     
-    pred = model.predict(img)
-    pred_conf = np.amax(pred)
-    pred_index = np.argmax(pred)
-    pred_label = labels[pred_index]
+    pred_labels = []
+    pred_confs = []
     
-    return pred_label, pred_conf
+    for roi in img:
+        pred = model.predict(roi)
+        pred_conf = np.amax(pred)
+        pred_index = np.argmax(pred)
+        pred_label = char_list[pred_index]
+        
+        pred_labels.append(pred_label)
+        pred_confs.append(pred_conf)
+    
+    return pred_labels, pred_confs
 
 
 
@@ -197,14 +206,12 @@ def resize_img(img, w, h):
 
   return filled
 
-def segment_and_recognize_letters(word_rois):
-  img = preprocessing(word_rois)
-  total_letter = 0
-  roi_index = 0
+def segment_and_recognize_letters(img):
+  word_rois = preprocessing(img)
   segmented_letters = []
 
   for roi in word_rois:
-    segmented_letters.append([])
+    letters = []
     # Thresholding
     thresh = cv2.threshold(roi, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)[1]
 
@@ -215,7 +222,9 @@ def segment_and_recognize_letters(word_rois):
 
     # Localitation
     contours_letter, _ = cv2.findContours(opened_image, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+  
     contours_letter = sort_contours(contours_letter, method="left-to-right")[0]
+
 
     lps = 0
 
@@ -243,15 +252,14 @@ def segment_and_recognize_letters(word_rois):
               resize_letter = resize_img(numpy_letter,28,28)
               normalized_letter = resize_letter.reshape(28, 28, 1)
 
-              model = load_model('models/model.h5')
-              char_list = joblib.load('models/EduScan.pkl')
-              
               pred = model.predict(normalized_letter)
               pred_index = np.argmax(pred)
               pred_label = char_list[pred_index]
+
+              letters.append(str(pred_label))
               
 
-              segmented_letters[roi_index].append(str(pred_label))
+              segmented_letters.append(letters)
 
 
 
